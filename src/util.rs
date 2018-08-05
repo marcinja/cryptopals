@@ -153,11 +153,11 @@ fn set1_challenge3() {
 }
 
 fn detect_single_char_xor(file_contents: String, english_freq: &Vec<f64>) -> (String, f64) {
-    let mut best_msg: Vec<u8> =vec![0];
+    let mut best_msg: Vec<u8> = vec![0];
     let mut max_score: f64 = 0.0;
 
     for line in file_contents.lines() {
-        let (_key, score, msg_bytes) =  likely_single_byte_xor(line.to_string(), english_freq);
+        let (_key, score, msg_bytes) = likely_single_byte_xor(line.to_string(), english_freq);
 
         if score > max_score {
             best_msg = msg_bytes;
@@ -166,11 +166,12 @@ fn detect_single_char_xor(file_contents: String, english_freq: &Vec<f64>) -> (St
     }
 
     (best_msg.iter().map(|c| *c as char).collect(), max_score)
-} 
+}
 
 #[test]
 fn set1_challenge4() {
-    let file_name: String = String::from("/home/marcinja/rustacean/cryptopals/data/challenge-4.txt");
+    let file_name: String =
+        String::from("/home/marcinja/rustacean/cryptopals/data/challenge-4.txt");
     let mut f = File::open(file_name).expect("file not found");
     let mut input = String::new();
     f.read_to_string(&mut input)
