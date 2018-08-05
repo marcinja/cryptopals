@@ -152,7 +152,6 @@ fn set1_challenge3() {
     println!("Challenge 3 Message: {}, {}", msg, likely_byte as u8);
 }
 
-
 fn detect_single_char_xor(file_contents: String, english_freq: &Vec<f64>) -> (String, f64) {
     let mut best_msg: Vec<u8> =vec![0];
     let mut max_score: f64 = 0.0;
@@ -203,5 +202,4 @@ fn set1_challenge5() {
     let result = hex::encode(&repeating_key_xor(&input, &key));
 
     assert_eq!(result, expected);
->>>>>>> 00a9c94... Finish challenge 4
 }
