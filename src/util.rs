@@ -65,7 +65,7 @@ fn is_printable_ascii(c: &u8) -> bool {
 }
 
 fn get_char_freq_from_file() -> Vec<f64> {
-    let file_name: String = String::from("/home/marcinja/rustacean/cryptopals/moby-dick.txt");
+    let file_name: String = String::from("/home/marcinja/rustacean/cryptopals/data/moby-dick.txt");
     let mut f = File::open(file_name).expect("file not found");
     let mut input = String::new();
 
@@ -88,7 +88,7 @@ fn get_char_freq(input: &Vec<u8>) -> Vec<f64> {
     counts.iter().map(|c| c / sum).collect()
 }
 
-fn likely_single_byte_xor(s: String, english_freq: Vec<f64>) -> (char, Vec<u8>) {
+fn likely_single_byte_xor(s: String, english_freq: &Vec<f64>) -> (char, f64, Vec<u8>) {
     let s_bytes: Vec<u8> = hex::decode(s).unwrap();
 
     let mut best_msg: Vec<u8> = vec![0; s_bytes.len()];
@@ -107,7 +107,7 @@ fn likely_single_byte_xor(s: String, english_freq: Vec<f64>) -> (char, Vec<u8>) 
         }
     }
 
-    (best_byte as char, best_msg)
+    (best_byte as char, best_score, best_msg)
 }
 
 #[test]
@@ -145,9 +145,63 @@ fn set1_challenge3() {
 
     let test_str =
         String::from("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736");
-    let (likely_byte, likely_msg) = likely_single_byte_xor(test_str, english_freq);
+    let (likely_byte, _, likely_msg) = likely_single_byte_xor(test_str, &english_freq);
 
     let msg: String = likely_msg.iter().map(|c| *c as char).collect();
 
-    println!("Message: {}, {}", msg, likely_byte as u8);
+    println!("Challenge 3 Message: {}, {}", msg, likely_byte as u8);
+}
+
+
+fn detect_single_char_xor(file_contents: String, english_freq: &Vec<f64>) -> (String, f64) {
+    let mut best_msg: Vec<u8> =vec![0];
+    let mut max_score: f64 = 0.0;
+
+    for line in file_contents.lines() {
+        let (_key, score, msg_bytes) =  likely_single_byte_xor(line.to_string(), english_freq);
+
+        if score > max_score {
+            best_msg = msg_bytes;
+            max_score = score;
+        }
+    }
+
+    (best_msg.iter().map(|c| *c as char).collect(), max_score)
+} 
+
+#[test]
+fn set1_challenge4() {
+    let file_name: String = String::from("/home/marcinja/rustacean/cryptopals/data/challenge-4.txt");
+    let mut f = File::open(file_name).expect("file not found");
+    let mut input = String::new();
+    f.read_to_string(&mut input)
+        .expect("something went wrong reading the file");
+
+    let english_freq = get_char_freq_from_file();
+
+    let (msg, score) = detect_single_char_xor(input, &english_freq);
+    println!("Challenge 4: {} {}", msg, score);
+}
+
+fn repeating_key_xor(msg: &Vec<u8>, key: &Vec<u8>) -> Vec<u8> {
+    let key_size = key.len();
+
+    msg.iter()
+        .enumerate()
+        .map(|(i, b)| b ^ key[i % key_size])
+        .collect()
+}
+
+#[test]
+fn set1_challenge5() {
+    let key: Vec<u8> = String::from("ICE").into_bytes();
+    let input = String::from(
+        "Burning 'em, if you ain't quick and nimble\nI go crazy when I hear a cymbal",
+    ).into_bytes();
+
+    let expected = String::from("0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f");
+    let result = hex::encode(&repeating_key_xor(&input, &key));
+
+    assert_eq!(result, expected);
+>>>>>>> 00a9c94... Finish challenge 4
 }
