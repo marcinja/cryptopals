@@ -7,3 +7,6 @@ pub mod util;
 
 #[allow(dead_code)]
 pub mod aes;
+
+#[allow(dead_code)]
+pub mod set2;
