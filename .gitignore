@@ -1,4 +1,6 @@
 /target
+/data
 **/*.rs.bk
 Cargo.lock
 moby-dick.txt
+*.swp
