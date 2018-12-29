@@ -6,12 +6,7 @@ use std::fs::File;
 use std::io::prelude::*;
 
 fn PKCS7_pad(data: &[u8], blocksize: usize) -> Vec<u8> {
-    println!("{}", data.len());
-    let mut padding_length = data.len() % blocksize;
-
-    if data.len() < blocksize {
-        padding_length = blocksize - data.len();
-    }
+    let padding_length = blocksize - (data.len() % blocksize);
 
     let mut padded_data = vec![padding_length as u8; padding_length + data.len()];
 
@@ -29,3 +24,6 @@ fn challenge_9() {
         String::from("YELLOW SUBMARINE\x04\x04\x04\x04").into_bytes()
     );
 }
+
+#[test]
+fn challenge_10() {}
