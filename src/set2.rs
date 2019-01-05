@@ -34,12 +34,9 @@ fn challenge_10() {
     let iv = vec!['\x00' as u8; AES_BLOCKSIZE];
     assert_eq!(key.len(), iv.len());
 
-    //let cipher = Cipher::aes_128_ecb();
-    //let plaintext = decrypt(cipher, &key, Some(&iv), &input_bytes).unwrap();
-
     let plaintext = cbc_decrypt(&input_bytes, &key, &iv);
     let ciphertext = cbc_encrypt(&plaintext, &key, &iv);
     let plaintext2 = cbc_decrypt(&ciphertext, &key, &iv);
 
-    //println!("PLAINTEXT {}", String::from_utf8(plaintext2).unwrap());
+    println!("PLAINTEXT {}", String::from_utf8(plaintext2).unwrap());
 }

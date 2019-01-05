@@ -1,6 +1,8 @@
 use base64;
 use hex;
+use openssl::rand::rand_bytes;
 use openssl::symm::{decrypt, encrypt, Cipher, Crypter, Mode};
+use rand::{random, thread_rng, Rng};
 use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
@@ -105,6 +107,56 @@ pub fn cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Vec<u8> {
     count += encrypter.finalize(&mut ciphertext[count..]).unwrap();
     ciphertext.truncate(count);
     ciphertext
+}
+
+pub fn generate_random_key(size: usize) -> Vec<u8> {
+    // Generate using openssl PRG.
+    let mut key = vec![0u8; size];
+    rand_bytes(&mut key).unwrap();
+    key
+}
+
+pub fn encryption_oracle(data: &[u8], key: &[u8]) -> Vec<u8> {
+    let mut rng = thread_rng();
+    let prefix_len = rng.gen_range(5, 11);
+    let suffix_len = rng.gen_range(5, 11);
+
+    let mut buf = vec![0u8; prefix_len + data.len() + suffix_len];
+    &buf[prefix_len..(prefix_len + data.len())].copy_from_slice(&data[..]);
+
+    // Generate random bytes for prefix and suffix.
+    rand_bytes(&mut buf[..prefix_len]).unwrap();
+    rand_bytes(&mut buf[prefix_len + data.len()..]).unwrap();
+
+    // CBC half the time, ECB half the time.
+    if random() {
+        return ecb_encrypt(&buf, key);
+    } else {
+        let mut iv = vec![0u8; AES_BLOCKSIZE];
+        rand_bytes(&mut iv).unwrap();
+        return cbc_encrypt(&buf, key, &iv);
+    }
+}
+
+pub fn detect_ecb(data: &[u8]) -> bool {
+    // Check how many 16 bytes blocks are exactly the same to detect ECB-mode.
+    let mut collisions = 0;
+    let num_blocks = data.len() / 16;
+    for i in 0..num_blocks {
+        for j in (i + 1)..num_blocks {
+            let block1 = &data[i * 16..(i + 1) * 16];
+            let block2 = &data[j * 16..(j + 1) * 16];
+
+            if equal_blocks(block1, block2) {
+                collisions += 1;
+            }
+        }
+    }
+
+    if collisions > 0 {
+        return true;
+    }
+    false
 }
 
 #[test] // Encryption and decryption should be inverse ops.
