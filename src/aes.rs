@@ -240,6 +240,21 @@ fn challenge_8() {
     );
 }
 
+#[test]
+fn challenge_12() {
+    let file_name: String = String::from("/home/marcinja/rustacean/cryptopals/data/12.txt");
+    let mut f = File::open(file_name).expect("file not found");
+
+    let mut input = String::new();
+    f.read_to_string(&mut input)
+        .expect("something went wrong reading the file");
+
+    let data = base64::decode(&input).unwrap();
+
+    // Decrypt one byte at a time.
+    for i in 0..data.len() {}
+}
+
 fn equal_blocks(x: &[u8], y: &[u8]) -> bool {
     for i in 0..16 {
         if x[i] != y[i] {
