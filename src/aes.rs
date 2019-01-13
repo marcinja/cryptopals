@@ -15,8 +15,10 @@ pub fn ecb_decrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
 
 pub fn ecb_encrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
     let cipher = Cipher::aes_128_ecb();
+    let padded_data = pkcs7_pad(data, AES_BLOCKSIZE);
+
     // TODO check resultstack
-    encrypt(cipher, key, None, data).unwrap()
+    encrypt(cipher, key, None, &padded_data[..]).unwrap()
 }
 
 pub const AES_BLOCKSIZE: usize = 16;
@@ -72,6 +74,7 @@ pub fn cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Vec<u8> {
     // When encrypting data with size of AES_BLOCKSIZE, openssl will pad with a block of 0x10
     // bytes, and promptly fail for challenge 10.
     encrypter.pad(false);
+    let plaintext = pkcs7_pad(plaintext, AES_BLOCKSIZE);
 
     let mut buffer = vec![0u8; AES_BLOCKSIZE];
     &buffer.copy_from_slice(&plaintext[0..AES_BLOCKSIZE]);
@@ -136,6 +139,22 @@ pub fn encryption_oracle(data: &[u8], key: &[u8]) -> Vec<u8> {
         rand_bytes(&mut iv).unwrap();
         return cbc_encrypt(&buf, key, &iv);
     }
+}
+
+// AES-128-ECB(your-string || unknown-string, random-key)
+fn ch12_encryption_oracle(append_string: &[u8], data: &mut Vec<u8>, key: &[u8]) -> Vec<u8> {
+    data.extend_from_slice(append_string);
+    ecb_encrypt(&data, key)
+}
+
+//Same as real except using CBC-mode. Used to test EBC-mode detection.
+fn fake_ch12_encryption_oracle(append_string: &[u8], data: &mut Vec<u8>, key: &[u8]) -> Vec<u8> {
+    data.extend_from_slice(append_string);
+
+    let mut iv = vec![0u8; AES_BLOCKSIZE];
+    rand_bytes(&mut iv).unwrap();
+
+    cbc_encrypt(&data, key, &iv)
 }
 
 pub fn detect_ecb(data: &[u8]) -> bool {
@@ -240,6 +259,16 @@ fn challenge_8() {
     );
 }
 
+pub fn decrypt_ecb_byte_at_a_time(data: &[u8], key: &[u8]) -> Vec<u8> {
+    let mut result = vec![0u8; data.len()];
+
+    for num_bytes in 0..data.len() {}
+
+    result
+}
+
+const A: u8 = 0x41;
+
 #[test]
 fn challenge_12() {
     let file_name: String = String::from("/home/marcinja/rustacean/cryptopals/data/12.txt");
@@ -249,10 +278,37 @@ fn challenge_12() {
     f.read_to_string(&mut input)
         .expect("something went wrong reading the file");
 
-    let data = base64::decode(&input).unwrap();
+    let input = input.replace("\n", "");
+    let unknown_data = base64::decode(&input).unwrap();
+
+    let key = generate_random_key(AES_BLOCKSIZE);
+
+    // "Discover" blocksize. (guessing that 256 is max possible block size)
+    // Add data 1 byte at a time. Size should jump from n * BLOCKSIZE to
+    // (n+1) * BLOCKSIZE.
+    let start_size = ch12_encryption_oracle(&unknown_data, &mut vec![0u8; 0], &key).len();
+    let mut block_size = 0;
+    for i in 0..256 {
+        let mut data = vec![A; i];
+        let len = ch12_encryption_oracle(&unknown_data, &mut data, &key).len();
+        if (len > start_size) {
+            block_size = len - start_size;
+            break;
+        }
+    }
+    assert_eq!(block_size, AES_BLOCKSIZE);
+
+    // Test ECB-detection.
+    let mut test_data = vec![A; 50];
+    let ecb_ciphertext = ch12_encryption_oracle(&unknown_data, &mut test_data, &key);
+    assert!(detect_ecb(&ecb_ciphertext));
+
+    let mut test_data = vec![A; 50]; // shadow because the oracle pads input_data.
+    let cbc_ciphertext = fake_ch12_encryption_oracle(&unknown_data, &mut test_data, &key);
+    assert!(!detect_ecb(&cbc_ciphertext));
 
     // Decrypt one byte at a time.
-    for i in 0..data.len() {}
+    for i in 0..unknown_data.len() {}
 }
 
 fn equal_blocks(x: &[u8], y: &[u8]) -> bool {
