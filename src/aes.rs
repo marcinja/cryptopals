@@ -289,54 +289,25 @@ fn challenge_8() {
 pub fn decrypt_ecb_byte_at_a_time(data: &[u8], key: &[u8]) -> Vec<u8> {
     let mut result = vec![0u8; data.len()];
 
-    // Decrypt first block using a shortened block of "A" bytes.
-    for next_byte in 0..AES_BLOCKSIZE {
-        let mut shortened_block = vec![A; AES_BLOCKSIZE - (next_byte + 1)];
-        let ciphertext = ch12_encryption_oracle(&data, &mut shortened_block, &key);
-        let block_wanted = &ciphertext[0..AES_BLOCKSIZE];
-
-        let mut test_block = vec![A; AES_BLOCKSIZE];
-        // Fill in any bytes that we already know.
-        if (next_byte > 0) {
-            &test_block[AES_BLOCKSIZE - next_byte - 1..AES_BLOCKSIZE - 1]
-                .copy_from_slice(&result[..next_byte]);
-        }
-
-        for b in 0x00..=0xFF {
-            test_block[AES_BLOCKSIZE - 1] = b;
-            let attempt = ecb_encrypt(&test_block, &key);
-            assert_eq!(attempt.len(), AES_BLOCKSIZE); // Don't want padding.
-
-            if equal_blocks(&block_wanted, &attempt) {
-                result[next_byte] = b;
-                break;
-            }
-        }
-    }
-
-    // Let's check that our first block is right by encrypting it.
-    let mut buf = vec![0u8; 0];
-    let ciphertext = ch12_encryption_oracle(&data, &mut buf, &key);
-    let enc_res_so_far = ecb_encrypt(&result[0..AES_BLOCKSIZE], &key);
-    assert!(equal_blocks(&ciphertext[0..AES_BLOCKSIZE], &enc_res_so_far));
-
-    for next_byte in (AES_BLOCKSIZE)..data.len() {
-        let block_num = next_byte / AES_BLOCKSIZE;
+    for next_byte in 0..data.len() {
         let offset = (next_byte + 1) % AES_BLOCKSIZE;
-
         let mut shortened_block = vec![A; AES_BLOCKSIZE - offset];
         let added_len = shortened_block.len();
 
         let ciphertext = ch12_encryption_oracle(&data, &mut shortened_block, &key);
-
         let block_wanted =
-            &ciphertext[next_byte - AES_BLOCKSIZE + added_len + 1..next_byte + added_len + 1];
+            &ciphertext[next_byte + added_len + 1 - AES_BLOCKSIZE..next_byte + added_len + 1];
         assert_eq!(block_wanted.len(), AES_BLOCKSIZE); // Don't want padding.
 
         let mut test_block = vec![A; AES_BLOCKSIZE];
         // Fill in any bytes that we already know.
-        &test_block[..AES_BLOCKSIZE - 1]
-            .copy_from_slice(&result[next_byte - AES_BLOCKSIZE + 1..next_byte]);
+        if (next_byte < AES_BLOCKSIZE) {
+            &test_block[AES_BLOCKSIZE - next_byte - 1..AES_BLOCKSIZE - 1]
+                .copy_from_slice(&result[..next_byte]);
+        } else {
+            &test_block[..AES_BLOCKSIZE - 1]
+                .copy_from_slice(&result[next_byte - AES_BLOCKSIZE + 1..next_byte]);
+        }
 
         for b in 0x00..=0xFF {
             test_block[AES_BLOCKSIZE - 1] = b;
@@ -349,13 +320,6 @@ pub fn decrypt_ecb_byte_at_a_time(data: &[u8], key: &[u8]) -> Vec<u8> {
             }
         }
     }
-
-    // sanity check the second block.
-    let enc_res_so_far = ecb_encrypt(&result[AES_BLOCKSIZE..2 * AES_BLOCKSIZE], &key);
-    assert!(equal_blocks(
-        &ciphertext[AES_BLOCKSIZE..2 * AES_BLOCKSIZE],
-        &enc_res_so_far
-    ));
 
     result
 }
