@@ -3,6 +3,7 @@ use hex;
 use openssl::rand::rand_bytes;
 use openssl::symm::{decrypt, encrypt, Cipher, Crypter, Mode};
 use rand::{random, thread_rng, Rng};
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
@@ -14,17 +15,43 @@ pub fn ecb_decrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
 }
 
 pub fn ecb_encrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
+    let mut encrypter = Crypter::new(Cipher::aes_128_ecb(), Mode::Encrypt, key, None).unwrap();
+
+    // When encrypting data with size of AES_BLOCKSIZE, openssl will pad with a block of 0x10
+    // bytes, and promptly fail for challenge 10.
+    encrypter.pad(false);
+    let plaintext = pkcs7_pad(data, AES_BLOCKSIZE);
+
+    let mut ciphertext = vec![0u8; plaintext.len() + AES_BLOCKSIZE];
+    let mut count = encrypter
+        .update(
+            &plaintext,
+            &mut ciphertext, // openssl expects an additional block of space here because of padding?
+        )
+        .unwrap();
+    count += encrypter.finalize(&mut ciphertext[count..]).unwrap();
+    ciphertext.truncate(count);
+    ciphertext
+
+    /*
     let cipher = Cipher::aes_128_ecb();
     let padded_data = pkcs7_pad(data, AES_BLOCKSIZE);
+    println!("pd: {:?}", padded_data);
 
     // TODO check resultstack
     encrypt(cipher, key, None, &padded_data[..]).unwrap()
+    */
 }
 
 pub const AES_BLOCKSIZE: usize = 16;
 
 pub fn pkcs7_pad(data: &[u8], blocksize: usize) -> Vec<u8> {
+    if (data.len() % blocksize == 0) {
+        return data.to_vec();
+    }
+
     let padding_length = blocksize - (data.len() % blocksize);
+    assert!(padding_length != AES_BLOCKSIZE);
 
     let mut padded_data = vec![padding_length as u8; padding_length + data.len()];
 
@@ -262,7 +289,73 @@ fn challenge_8() {
 pub fn decrypt_ecb_byte_at_a_time(data: &[u8], key: &[u8]) -> Vec<u8> {
     let mut result = vec![0u8; data.len()];
 
-    for num_bytes in 0..data.len() {}
+    // Decrypt first block using a shortened block of "A" bytes.
+    for next_byte in 0..AES_BLOCKSIZE {
+        let mut shortened_block = vec![A; AES_BLOCKSIZE - (next_byte + 1)];
+        let ciphertext = ch12_encryption_oracle(&data, &mut shortened_block, &key);
+        let block_wanted = &ciphertext[0..AES_BLOCKSIZE];
+
+        let mut test_block = vec![A; AES_BLOCKSIZE];
+        // Fill in any bytes that we already know.
+        if (next_byte > 0) {
+            &test_block[AES_BLOCKSIZE - next_byte - 1..AES_BLOCKSIZE - 1]
+                .copy_from_slice(&result[..next_byte]);
+        }
+
+        for b in 0x00..=0xFF {
+            test_block[AES_BLOCKSIZE - 1] = b;
+            let attempt = ecb_encrypt(&test_block, &key);
+            assert_eq!(attempt.len(), AES_BLOCKSIZE); // Don't want padding.
+
+            if equal_blocks(&block_wanted, &attempt) {
+                result[next_byte] = b;
+                break;
+            }
+        }
+    }
+
+    // Let's check that our first block is right by encrypting it.
+    let mut buf = vec![0u8; 0];
+    let ciphertext = ch12_encryption_oracle(&data, &mut buf, &key);
+    let enc_res_so_far = ecb_encrypt(&result[0..AES_BLOCKSIZE], &key);
+    assert!(equal_blocks(&ciphertext[0..AES_BLOCKSIZE], &enc_res_so_far));
+
+    for next_byte in (AES_BLOCKSIZE)..data.len() {
+        let block_num = next_byte / AES_BLOCKSIZE;
+        let offset = (next_byte + 1) % AES_BLOCKSIZE;
+
+        let mut shortened_block = vec![A; AES_BLOCKSIZE - offset];
+        let added_len = shortened_block.len();
+
+        let ciphertext = ch12_encryption_oracle(&data, &mut shortened_block, &key);
+
+        let block_wanted =
+            &ciphertext[next_byte - AES_BLOCKSIZE + added_len + 1..next_byte + added_len + 1];
+        assert_eq!(block_wanted.len(), AES_BLOCKSIZE); // Don't want padding.
+
+        let mut test_block = vec![A; AES_BLOCKSIZE];
+        // Fill in any bytes that we already know.
+        &test_block[..AES_BLOCKSIZE - 1]
+            .copy_from_slice(&result[next_byte - AES_BLOCKSIZE + 1..next_byte]);
+
+        for b in 0x00..=0xFF {
+            test_block[AES_BLOCKSIZE - 1] = b;
+            let attempt = ecb_encrypt(&test_block, &key);
+            assert_eq!(attempt.len(), AES_BLOCKSIZE); // Don't want padding.
+
+            if equal_blocks(&block_wanted, &attempt) {
+                result[next_byte] = b;
+                break;
+            }
+        }
+    }
+
+    // sanity check the second block.
+    let enc_res_so_far = ecb_encrypt(&result[AES_BLOCKSIZE..2 * AES_BLOCKSIZE], &key);
+    assert!(equal_blocks(
+        &ciphertext[AES_BLOCKSIZE..2 * AES_BLOCKSIZE],
+        &enc_res_so_far
+    ));
 
     result
 }
@@ -308,7 +401,9 @@ fn challenge_12() {
     assert!(!detect_ecb(&cbc_ciphertext));
 
     // Decrypt one byte at a time.
-    for i in 0..unknown_data.len() {}
+    let result = decrypt_ecb_byte_at_a_time(&unknown_data, &key);
+    let res_string = String::from_utf8(result).unwrap();
+    println!("Answer:\n{}", res_string);
 }
 
 fn equal_blocks(x: &[u8], y: &[u8]) -> bool {
