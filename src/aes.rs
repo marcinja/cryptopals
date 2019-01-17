@@ -4,9 +4,21 @@ use openssl::rand::rand_bytes;
 use openssl::symm::{decrypt, encrypt, Cipher, Crypter, Mode};
 use rand::{random, thread_rng, Rng};
 use std::collections::HashMap;
+use std::error;
 use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
+use std::result;
+
+fn equal_blocks(x: &[u8], y: &[u8]) -> bool {
+    for i in 0..16 {
+        if x[i] != y[i] {
+            return false;
+        }
+    }
+
+    true
+}
 
 pub fn ecb_decrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
     let cipher = Cipher::aes_128_ecb();
@@ -46,13 +58,7 @@ pub fn ecb_encrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
 pub const AES_BLOCKSIZE: usize = 16;
 
 pub fn pkcs7_pad(data: &[u8], blocksize: usize) -> Vec<u8> {
-    if (data.len() % blocksize == 0) {
-        return data.to_vec();
-    }
-
     let padding_length = blocksize - (data.len() % blocksize);
-    assert!(padding_length != AES_BLOCKSIZE);
-
     let mut padded_data = vec![padding_length as u8; padding_length + data.len()];
 
     &padded_data[0..data.len()].copy_from_slice(&data);
@@ -286,6 +292,7 @@ fn challenge_8() {
     );
 }
 
+// Decrypt inputs appended with "data"
 pub fn decrypt_ecb_byte_at_a_time(data: &[u8], key: &[u8]) -> Vec<u8> {
     let mut result = vec![0u8; data.len()];
 
@@ -297,11 +304,10 @@ pub fn decrypt_ecb_byte_at_a_time(data: &[u8], key: &[u8]) -> Vec<u8> {
         let ciphertext = ch12_encryption_oracle(&data, &mut shortened_block, &key);
         let block_wanted =
             &ciphertext[next_byte + added_len + 1 - AES_BLOCKSIZE..next_byte + added_len + 1];
-        assert_eq!(block_wanted.len(), AES_BLOCKSIZE); // Don't want padding.
 
         let mut test_block = vec![A; AES_BLOCKSIZE];
         // Fill in any bytes that we already know.
-        if (next_byte < AES_BLOCKSIZE) {
+        if next_byte < AES_BLOCKSIZE {
             &test_block[AES_BLOCKSIZE - next_byte - 1..AES_BLOCKSIZE - 1]
                 .copy_from_slice(&result[..next_byte]);
         } else {
@@ -312,9 +318,8 @@ pub fn decrypt_ecb_byte_at_a_time(data: &[u8], key: &[u8]) -> Vec<u8> {
         for b in 0x00..=0xFF {
             test_block[AES_BLOCKSIZE - 1] = b;
             let attempt = ecb_encrypt(&test_block, &key);
-            assert_eq!(attempt.len(), AES_BLOCKSIZE); // Don't want padding.
 
-            if equal_blocks(&block_wanted, &attempt) {
+            if equal_blocks(&block_wanted, &attempt[..AES_BLOCKSIZE]) {
                 result[next_byte] = b;
                 break;
             }
@@ -348,7 +353,7 @@ fn challenge_12() {
     for i in 0..256 {
         let mut data = vec![A; i];
         let len = ch12_encryption_oracle(&unknown_data, &mut data, &key).len();
-        if (len > start_size) {
+        if len > start_size {
             block_size = len - start_size;
             break;
         }
@@ -370,12 +375,104 @@ fn challenge_12() {
     println!("Answer:\n{}", res_string);
 }
 
-fn equal_blocks(x: &[u8], y: &[u8]) -> bool {
-    for i in 0..16 {
-        if x[i] != y[i] {
-            return false;
+pub fn create_profile(email_addr: &str) -> String {
+    let split: Vec<&str> = email_addr.splitn(2, "@").collect();
+
+    // Remove non-alphanumeric characters that aren't '.'
+    let name: String = split[0].replace(|x: char| !x.is_alphanumeric() && x != '.', "");
+    let domain: String = split[1].replace(|x: char| !x.is_alphanumeric() && x != '.', "");
+
+    // Creat random uid
+    let mut rng = thread_rng();
+    let uid = rng.gen_range(0, 99999);
+
+    format!("email={}@{}&uid={}&role=user", name, domain, uid)
+}
+
+// Encrypt user profile under key.
+fn ch13_enc_oracle(profile: &str, key: &[u8]) -> Vec<u8> {
+    ecb_encrypt(profile.as_bytes(), key)
+}
+
+// Decrypt profile.
+fn ch13_dec_oracle(enc_profile: &[u8], key: &[u8]) -> String {
+    let profile_bytes = ecb_decrypt(enc_profile, key);
+    String::from_utf8(profile_bytes).unwrap()
+}
+
+#[test]
+fn challenge14() {}
+
+#[derive(Debug)]
+pub enum PaddingError {
+    BadPadding,
+}
+
+impl fmt::Display for PaddingError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PaddingError::BadPadding => write!(f, "BAD PADDING!"),
+        }
+    }
+}
+
+impl error::Error for PaddingError {
+    fn description(&self) -> &str {
+        match *self {
+            PaddingError::BadPadding => "Badding is no good.",
         }
     }
 
-    true
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            PaddingError::BadPadding => None,
+        }
+    }
 }
+
+type Result<T> = result::Result<T, PaddingError>;
+
+pub fn strip_pkcs7_padding(data: &[u8], blocksize: usize) -> Result<Vec<u8>> {
+    if (data.len() % blocksize) != 0 {
+        return Err(PaddingError::BadPadding);
+    }
+
+    let last_idx = data.len() - 1;
+    let last_byte = data[last_idx] as usize;
+
+    if last_byte < 0 || last_byte > blocksize - 1 {
+        return Err(PaddingError::BadPadding);
+    }
+
+    let pad_idx = last_idx - last_byte + 1;
+    for i in pad_idx..last_idx {
+        if data[i] != data[last_idx] {
+            return Err(PaddingError::BadPadding);
+        }
+    }
+
+    let mut stripped_data = vec![0u8; data.len() - last_byte];
+    &stripped_data[0..data.len() - last_byte].copy_from_slice(&data[0..data.len() - last_byte]);
+
+    Ok(stripped_data)
+}
+
+#[test]
+fn challenge15() {
+    let test_input = String::from("ICE ICE BABY\x04\x04\x04\x04");
+    assert_eq!(
+        String::from("ICE ICE BABY"),
+        String::from_utf8(strip_pkcs7_padding(&test_input.into_bytes(), AES_BLOCKSIZE).unwrap())
+            .unwrap()
+    );
+
+    assert!(
+        strip_pkcs7_padding(
+            &String::from("ICE ICE BABY\x01\x01\x02\x33").into_bytes(),
+            AES_BLOCKSIZE
+        ).is_err()
+    );
+}
+
+#[test]
+fn challenge16() {}
